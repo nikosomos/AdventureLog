@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -10,15 +11,16 @@ class ActivityTypesView(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def types(self, request):
         """
-        Retrieve a list of distinct activity types for locations associated with the current user.
-
-        Args:
-            request (HttpRequest): The HTTP request object.
-
-        Returns:
-            Response: A response containing a list of distinct activity types.
+        Retrieve a list of distinct activity types for locations the current
+        user owns or can see via a shared collection.
         """
-        types = Location.objects.filter(user=request.user).values_list('tags', flat=True).distinct()
+        user = request.user
+        locations = Location.objects.filter(
+            Q(user=user)
+            | Q(collections__user=user)
+            | Q(collections__shared_with=user)
+        ).distinct()
+        types = locations.values_list('tags', flat=True)
 
         allTypes = []
 
