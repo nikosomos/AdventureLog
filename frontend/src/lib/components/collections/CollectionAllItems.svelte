@@ -27,13 +27,42 @@
 		| 'date-asc'
 		| 'date-desc' = 'alphabetical-asc';
 
+	// Shared filter props (from parent route). When set, take precedence over per-component
+	// search inputs so the filter survives tab switches.
+	export let filterSearch: string = '';
+	export let filterCategoryIds: Set<string> = new Set();
+	export let filterTags: Set<string> = new Set();
+
+	$: activeLocationSearch = filterSearch?.trim() ? filterSearch : locationSearch;
+
+	function matchesSharedFilter(loc: any): boolean {
+		if (filterCategoryIds.size > 0) {
+			const id = loc?.category?.id;
+			if (!id || !filterCategoryIds.has(id)) return false;
+		}
+		if (filterTags.size > 0) {
+			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
+			let hit = false;
+			for (const tag of locTags) {
+				if (filterTags.has(tag)) {
+					hit = true;
+					break;
+				}
+			}
+			if (!hit) return false;
+		}
+		return true;
+	}
+
 	$: sortedLocations = (() => {
 		if (!collection?.locations) return [];
 
+		const query = (activeLocationSearch || '').toLowerCase();
 		let filtered = collection.locations.filter(
 			(loc) =>
-				loc.name.toLowerCase().includes(locationSearch.toLowerCase()) ||
-				loc.location?.toLowerCase().includes(locationSearch.toLowerCase())
+				(loc.name.toLowerCase().includes(query) ||
+					loc.location?.toLowerCase().includes(query)) &&
+				matchesSharedFilter(loc)
 		);
 
 		switch (locationSort) {
@@ -66,37 +95,43 @@
 
 	// Transportations
 	export let transportationSearch: string = '';
+	$: activeTransportSearch = filterSearch?.trim() ? filterSearch : transportationSearch;
 	$: filteredTransportations = (() => {
 		if (!collection?.transportations) return [];
-		return collection.transportations.filter((t) =>
-			t.name.toLowerCase().includes(transportationSearch.toLowerCase())
-		);
+		const q = activeTransportSearch.toLowerCase();
+		return collection.transportations.filter((t) => t.name.toLowerCase().includes(q));
 	})();
 
 	// Lodging
 	export let lodgingSearch: string = '';
+	$: activeLodgingSearch = filterSearch?.trim() ? filterSearch : lodgingSearch;
 	$: filteredLodging = (() => {
 		if (!collection?.lodging) return [];
-		return collection.lodging.filter((l) =>
-			l.name.toLowerCase().includes(lodgingSearch.toLowerCase())
-		);
+		const q = activeLodgingSearch.toLowerCase();
+		return collection.lodging.filter((l) => l.name.toLowerCase().includes(q));
 	})();
 
 	// Notes
 	export let noteSearch: string = '';
+	$: activeNoteSearch = filterSearch?.trim() ? filterSearch : noteSearch;
 	$: filteredNotes = (() => {
 		if (!collection?.notes) return [];
-		return collection.notes.filter((n) => n.name.toLowerCase().includes(noteSearch.toLowerCase()));
+		const q = activeNoteSearch.toLowerCase();
+		return collection.notes.filter((n) => n.name.toLowerCase().includes(q));
 	})();
 
 	// Checklists
 	export let checklistSearch: string = '';
+	$: activeChecklistSearch = filterSearch?.trim() ? filterSearch : checklistSearch;
 	$: filteredChecklists = (() => {
 		if (!collection?.checklists) return [];
-		return collection.checklists.filter((c) =>
-			c.name.toLowerCase().includes(checklistSearch.toLowerCase())
-		);
+		const q = activeChecklistSearch.toLowerCase();
+		return collection.checklists.filter((c) => c.name.toLowerCase().includes(q));
 	})();
+
+	// When category/tag filters are active, sections without category/tag metadata
+	// (transport/lodging/notes/checklists) are hidden — they cannot satisfy the filter.
+	$: hideNonLocationSections = filterCategoryIds.size > 0 || filterTags.size > 0;
 
 	// Generic handlers for editing and deleting items in the collection.
 	// `type` should match the collection property name: 'locations', 'transportations', 'lodging', 'notes', 'checklists'
@@ -216,7 +251,7 @@
 	{/if}
 
 	<!-- Transportations Section -->
-	{#if collection.transportations && collection.transportations.length > 0}
+	{#if !hideNonLocationSections && collection.transportations && collection.transportations.length > 0}
 		<div class="card bg-base-200 shadow-xl">
 			<div class="card-body">
 				<div class="flex flex-wrap justify-between items-center gap-4 mb-6">
@@ -264,7 +299,7 @@
 	{/if}
 
 	<!-- Lodging Section -->
-	{#if collection.lodging && collection.lodging.length > 0}
+	{#if !hideNonLocationSections && collection.lodging && collection.lodging.length > 0}
 		<div class="card bg-base-200 shadow-xl">
 			<div class="card-body">
 				<div class="flex flex-wrap justify-between items-center gap-4 mb-6">
@@ -312,7 +347,7 @@
 	{/if}
 
 	<!-- Notes Section -->
-	{#if collection.notes && collection.notes.length > 0}
+	{#if !hideNonLocationSections && collection.notes && collection.notes.length > 0}
 		<div class="card bg-base-200 shadow-xl">
 			<div class="card-body">
 				<div class="flex flex-wrap justify-between items-center gap-4 mb-6">
@@ -359,7 +394,7 @@
 	{/if}
 
 	<!-- Checklists Section -->
-	{#if collection.checklists && collection.checklists.length > 0}
+	{#if !hideNonLocationSections && collection.checklists && collection.checklists.length > 0}
 		<div class="card bg-base-200 shadow-xl">
 			<div class="card-body">
 				<div class="flex flex-wrap justify-between items-center gap-4 mb-6">

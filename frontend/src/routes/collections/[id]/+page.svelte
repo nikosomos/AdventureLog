@@ -17,6 +17,7 @@
 	import { isAllDay } from '$lib';
 	import ImageDisplayModal from '$lib/components/ImageDisplayModal.svelte';
 	import CollectionAllItems from '$lib/components/collections/CollectionAllItems.svelte';
+	import CollectionFilterBar from '$lib/components/collections/CollectionFilterBar.svelte';
 	import CollectionItineraryPlanner from '$lib/components/collections/CollectionItineraryPlanner.svelte';
 	import CollectionRecommendationView from '$lib/components/CollectionRecommendationView.svelte';
 	import CollectionMap from '$lib/components/collections/CollectionMap.svelte';
@@ -168,6 +169,11 @@
 			}
 		}
 	}
+
+	// Shared filter state (persists across tab switches; applies to All Items, Itinerary, Map)
+	let filterSearch: string = '';
+	let filterSelectedCategoryIds: Set<string> = new Set();
+	let filterSelectedTags: Set<string> = new Set();
 
 	// View state from URL params
 	type ViewType = 'all' | 'itinerary' | 'map' | 'calendar' | 'recommendations' | 'stats';
@@ -1085,6 +1091,18 @@
 
 	<!-- Main Content -->
 	<div class="container mx-auto px-2 sm:px-4 py-6 sm:py-8 max-w-7xl">
+		<!-- Shared filter bar (applies to All Items, Itinerary, Map) -->
+		{#if currentView === 'all' || currentView === 'itinerary' || currentView === 'map'}
+			<div class="mb-6">
+				<CollectionFilterBar
+					{collection}
+					bind:search={filterSearch}
+					bind:selectedCategoryIds={filterSelectedCategoryIds}
+					bind:selectedTags={filterSelectedTags}
+				/>
+			</div>
+		{/if}
+
 		<!-- View Switcher -->
 		<div class="flex justify-center mb-6">
 			<div class="join">
@@ -1172,6 +1190,9 @@
 						bind:collection
 						user={data.user}
 						{isFolderView}
+						filterSearch={filterSearch}
+						filterCategoryIds={filterSelectedCategoryIds}
+						filterTags={filterSelectedTags}
 						on:openEdit={handleOpenEdit}
 					/>
 				{/if}
@@ -1182,6 +1203,9 @@
 						bind:collection
 						user={data.user}
 						canModify={canModifyCollection}
+						filterSearch={filterSearch}
+						filterCategoryIds={filterSelectedCategoryIds}
+						filterTags={filterSelectedTags}
 					/>
 				{/if}
 
@@ -1196,7 +1220,13 @@
 						<div class="card-body">
 							<h2 class="card-title text-2xl mb-4">🗺️ {$t('navbar.map')}</h2>
 							<div class="rounded-lg overflow-hidden shadow-lg">
-								<CollectionMap bind:collection user={data.user} />
+								<CollectionMap
+									bind:collection
+									user={data.user}
+									filterSearch={filterSearch}
+									filterCategoryIds={filterSelectedCategoryIds}
+									filterTags={filterSelectedTags}
+								/>
 							</div>
 						</div>
 					</div>
