@@ -45,28 +45,21 @@
 	// When category/tag filters are active, only Location items match; other types
 	// (transport/lodging/note/checklist) are hidden. Search matches against item name.
 	export let filterSearch: string = '';
-	export let filterCategoryIds: Set<string> = new Set();
-	export let filterTags: Set<string> = new Set();
+	export let filterCategoryIds: string[] = [];
+	export let filterTags: string[] = [];
 
-	$: sharedCategoryTagActive = filterCategoryIds.size > 0 || filterTags.size > 0;
+	$: sharedCategoryTagActive = filterCategoryIds.length > 0 || filterTags.length > 0;
 	$: sharedSearchActive = !!filterSearch?.trim();
 	$: sharedFilterActive = sharedCategoryTagActive || sharedSearchActive;
 
 	function locationPassesCategoryTag(loc: any): boolean {
-		if (filterCategoryIds.size > 0) {
+		if (filterCategoryIds.length > 0) {
 			const id = loc?.category?.id;
-			if (!id || !filterCategoryIds.has(id)) return false;
+			if (!id || !filterCategoryIds.includes(id)) return false;
 		}
-		if (filterTags.size > 0) {
+		if (filterTags.length > 0) {
 			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
-			let hit = false;
-			for (const tag of locTags) {
-				if (filterTags.has(tag)) {
-					hit = true;
-					break;
-				}
-			}
-			if (!hit) return false;
+			if (!locTags.some((t) => filterTags.includes(t))) return false;
 		}
 		return true;
 	}
@@ -114,28 +107,49 @@
 	};
 
 	$: rawDays = groupItemsByDay(collection);
-	$: days = rawDays.map((d) => ({
-		...d,
-		items: d.items.filter((it) =>
-			resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
-		),
-		globalDatedItems: d.globalDatedItems.filter((it) =>
-			resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
-		),
-		overnightLodging: d.overnightLodging.filter(lodgingPassesSharedFilter)
-	}));
+	// NOTE: Svelte 4 only tracks $: deps that appear directly in the expression body.
+	// We reference filterSearch/filterCategoryIds/filterTags explicitly so toggling a
+	// filter chip invalidates these derivations (calls into helpers aren't traced).
+	$: days = (() => {
+		const _q = filterSearch;
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _q, _c, _g;
+		return rawDays.map((d) => ({
+			...d,
+			items: d.items.filter((it) =>
+				resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
+			),
+			globalDatedItems: d.globalDatedItems.filter((it) =>
+				resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
+			),
+			overnightLodging: d.overnightLodging.filter(lodgingPassesSharedFilter)
+		}));
+	})();
 	$: rawUnscheduledItems = getUnscheduledItems(collection);
-	$: unscheduledItems = rawUnscheduledItems.filter(({ type, item }: any) =>
-		resolvedPassesSharedFilter(item, type)
-	);
+	$: unscheduledItems = (() => {
+		const _q = filterSearch;
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _q, _c, _g;
+		return rawUnscheduledItems.filter(({ type, item }: any) =>
+			resolvedPassesSharedFilter(item, type)
+		);
+	})();
 	// Trip-wide (global) itinerary items
 	$: rawGlobalItems = (collection.itinerary || [])
 		.filter((it) => it.is_global)
 		.map((it) => resolveItineraryItem(it, collection))
 		.sort((a, b) => a.order - b.order);
-	$: globalItems = rawGlobalItems.filter((it) =>
-		resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
-	);
+	$: globalItems = (() => {
+		const _q = filterSearch;
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _q, _c, _g;
+		return rawGlobalItems.filter((it) =>
+			resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
+		);
+	})();
 
 	// Auto-generate state
 	let isAutoGenerating = false;

@@ -30,31 +30,30 @@
 	// Shared filter props (from parent route). When set, take precedence over per-component
 	// search inputs so the filter survives tab switches.
 	export let filterSearch: string = '';
-	export let filterCategoryIds: Set<string> = new Set();
-	export let filterTags: Set<string> = new Set();
+	export let filterCategoryIds: string[] = [];
+	export let filterTags: string[] = [];
 
 	$: activeLocationSearch = filterSearch?.trim() ? filterSearch : locationSearch;
 
 	function matchesSharedFilter(loc: any): boolean {
-		if (filterCategoryIds.size > 0) {
+		if (filterCategoryIds.length > 0) {
 			const id = loc?.category?.id;
-			if (!id || !filterCategoryIds.has(id)) return false;
+			if (!id || !filterCategoryIds.includes(id)) return false;
 		}
-		if (filterTags.size > 0) {
+		if (filterTags.length > 0) {
 			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
-			let hit = false;
-			for (const tag of locTags) {
-				if (filterTags.has(tag)) {
-					hit = true;
-					break;
-				}
-			}
-			if (!hit) return false;
+			if (!locTags.some((t) => filterTags.includes(t))) return false;
 		}
 		return true;
 	}
 
+	// NOTE: directly reference filterCategoryIds & filterTags so Svelte 4's static
+	// reactivity tracking picks them up as dependencies (calls into helpers don't).
 	$: sortedLocations = (() => {
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const _depCats = filterCategoryIds;
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const _depTags = filterTags;
 		if (!collection?.locations) return [];
 
 		const query = (activeLocationSearch || '').toLowerCase();
@@ -131,7 +130,7 @@
 
 	// When category/tag filters are active, sections without category/tag metadata
 	// (transport/lodging/notes/checklists) are hidden — they cannot satisfy the filter.
-	$: hideNonLocationSections = filterCategoryIds.size > 0 || filterTags.size > 0;
+	$: hideNonLocationSections = filterCategoryIds.length > 0 || filterTags.length > 0;
 
 	// Generic handlers for editing and deleting items in the collection.
 	// `type` should match the collection property name: 'locations', 'transportations', 'lodging', 'notes', 'checklists'

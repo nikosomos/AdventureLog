@@ -25,26 +25,19 @@
 	// can produce map markers, and non-location features (lodging/transport) are
 	// hidden because they have no category/tags.
 	export let filterSearch: string = '';
-	export let filterCategoryIds: Set<string> = new Set();
-	export let filterTags: Set<string> = new Set();
+	export let filterCategoryIds: string[] = [];
+	export let filterTags: string[] = [];
 
-	$: sharedCategoryTagActive = filterCategoryIds.size > 0 || filterTags.size > 0;
+	$: sharedCategoryTagActive = filterCategoryIds.length > 0 || filterTags.length > 0;
 
 	function locationMatchesSharedFilter(loc: any): boolean {
-		if (filterCategoryIds.size > 0) {
+		if (filterCategoryIds.length > 0) {
 			const id = loc?.category?.id;
-			if (!id || !filterCategoryIds.has(id)) return false;
+			if (!id || !filterCategoryIds.includes(id)) return false;
 		}
-		if (filterTags.size > 0) {
+		if (filterTags.length > 0) {
 			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
-			let hit = false;
-			for (const tag of locTags) {
-				if (filterTags.has(tag)) {
-					hit = true;
-					break;
-				}
-			}
-			if (!hit) return false;
+			if (!locTags.some((t) => filterTags.includes(t))) return false;
 		}
 		return true;
 	}
@@ -364,10 +357,16 @@
 		)
 	).sort();
 
-	$: locationFeatures = (collection?.locations || [])
-		.filter(locationMatchesSharedFilter)
-		.map(locationToFeature)
-		.filter(Boolean) as MarkerFeature[];
+	// NOTE: directly reference filter prop arrays so Svelte 4 picks them up as deps.
+	$: locationFeatures = (() => {
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _c, _g;
+		return (collection?.locations || [])
+			.filter(locationMatchesSharedFilter)
+			.map(locationToFeature)
+			.filter(Boolean) as MarkerFeature[];
+	})();
 
 	$: lodgingFeatures = sharedCategoryTagActive
 		? []
