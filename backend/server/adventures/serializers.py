@@ -7,6 +7,7 @@ from worldtravel.serializers import CountrySerializer, RegionSerializer, CitySer
 from geopy.distance import geodesic
 from integrations.models import ImmichIntegration
 from adventures.utils.geojson import gpx_to_geojson
+from adventures.utils.collaborators import get_visible_user_ids
 import gpxpy
 import logging
 
@@ -375,24 +376,36 @@ class LocationSerializer(CustomModelSerializer):
         
         return collections
 
+    def _find_visible_category(self, user, name):
+        """Look up an existing category by name across the user + collaborators.
+
+        Prefers the requester's own category if one with this name exists, so
+        repeated edits don't drift between collaborators' duplicates.
+        """
+        visible_ids = list(get_visible_user_ids(user))
+        own = Category.objects.filter(user=user, name=name).first()
+        if own:
+            return own
+        return Category.objects.filter(user_id__in=visible_ids, name=name).first()
+
     def validate_category(self, category_data):
         if isinstance(category_data, Category):
             return category_data
         if category_data:
             user = self.context['request'].user
             name = category_data.get('name', '').lower()
-            existing_category = Category.objects.filter(user=user, name=name).first()
+            existing_category = self._find_visible_category(user, name)
             if existing_category:
                 return existing_category
             category_data['name'] = name
         return category_data
-    
+
     def get_or_create_category(self, category_data):
         user = self.context['request'].user
-        
+
         if isinstance(category_data, Category):
             return category_data
-        
+
         if isinstance(category_data, dict):
             name = category_data.get('name', '').lower()
             display_name = category_data.get('display_name', name)
@@ -402,7 +415,11 @@ class LocationSerializer(CustomModelSerializer):
             display_name = category_data.display_name
             icon = category_data.icon
 
-        category, created = Category.objects.get_or_create(
+        existing = self._find_visible_category(user, name)
+        if existing:
+            return existing
+
+        category, _ = Category.objects.get_or_create(
             user=user,
             name=name,
             defaults={
@@ -443,13 +460,16 @@ class LocationSerializer(CustomModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        # Handle category - ONLY allow the location owner to change categories
+        # Handle category - allow the location owner, or any collaborator on a
+        # collection this location belongs to, to set categories.
         user = self.context['request'].user
-        if category_data and instance.user == user:
-            # Only the owner can set categories
-            category = self.get_or_create_category(category_data)
-            instance.category = category
-        # If not the owner, ignore category changes
+        if category_data:
+            is_owner = instance.user == user
+            is_collaborator = instance.collections.filter(shared_with=user).exists()
+            if is_owner or is_collaborator:
+                category = self.get_or_create_category(category_data)
+                instance.category = category
+        # Otherwise ignore category changes
 
         # Save the location first so that user-supplied field values (including
         # is_public) are persisted before the m2m_changed signal fires.

@@ -4,13 +4,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from adventures.models import Category, Location
 from adventures.serializers import CategorySerializer
+from adventures.utils.collaborators import get_visible_user_ids
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Category.objects.filter(user=self.request.user)
+        return Category.objects.filter(user_id__in=get_visible_user_ids(self.request.user))
 
     def list(self, request, *args, **kwargs):
         """

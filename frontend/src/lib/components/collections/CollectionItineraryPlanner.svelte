@@ -41,6 +41,54 @@
 	// Whether the current user can modify this collection (owner or shared user)
 	export let canModify: boolean = false;
 
+	// Shared filter props from parent route (CollectionFilterBar).
+	// When category/tag filters are active, only Location items match; other types
+	// (transport/lodging/note/checklist) are hidden. Search matches against item name.
+	export let filterSearch: string = '';
+	export let filterCategoryIds: string[] = [];
+	export let filterTags: string[] = [];
+
+	$: sharedCategoryTagActive = filterCategoryIds.length > 0 || filterTags.length > 0;
+	$: sharedSearchActive = !!filterSearch?.trim();
+	$: sharedFilterActive = sharedCategoryTagActive || sharedSearchActive;
+
+	function locationPassesCategoryTag(loc: any): boolean {
+		if (filterCategoryIds.length > 0) {
+			const id = loc?.category?.id;
+			if (!id || !filterCategoryIds.includes(id)) return false;
+		}
+		if (filterTags.length > 0) {
+			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
+			if (!locTags.some((t) => filterTags.includes(t))) return false;
+		}
+		return true;
+	}
+
+	function matchesSharedSearch(name: string | null | undefined): boolean {
+		if (!sharedSearchActive) return true;
+		const q = filterSearch.trim().toLowerCase();
+		return !!name && name.toLowerCase().includes(q);
+	}
+
+	// Whether a resolved itinerary item should be visible under current filters.
+	function resolvedPassesSharedFilter(
+		obj: any,
+		type: 'location' | 'transportation' | 'lodging' | 'note' | 'checklist' | string
+	): boolean {
+		if (!obj) return !sharedFilterActive;
+		if (type === 'location') {
+			if (!locationPassesCategoryTag(obj)) return false;
+			return matchesSharedSearch(obj?.name);
+		}
+		if (sharedCategoryTagActive) return false;
+		return matchesSharedSearch(obj?.name);
+	}
+
+	function lodgingPassesSharedFilter(l: any): boolean {
+		if (sharedCategoryTagActive) return false;
+		return matchesSharedSearch(l?.name);
+	}
+
 	const flipDurationMs = 200;
 
 	// Extended itinerary item with resolved object
@@ -58,13 +106,50 @@
 		dayMetadata: CollectionItineraryDay | null; // Day name and description
 	};
 
-	$: days = groupItemsByDay(collection);
-	$: unscheduledItems = getUnscheduledItems(collection);
+	$: rawDays = groupItemsByDay(collection);
+	// NOTE: Svelte 4 only tracks $: deps that appear directly in the expression body.
+	// We reference filterSearch/filterCategoryIds/filterTags explicitly so toggling a
+	// filter chip invalidates these derivations (calls into helpers aren't traced).
+	$: days = (() => {
+		const _q = filterSearch;
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _q, _c, _g;
+		return rawDays.map((d) => ({
+			...d,
+			items: d.items.filter((it) =>
+				resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
+			),
+			globalDatedItems: d.globalDatedItems.filter((it) =>
+				resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
+			),
+			overnightLodging: d.overnightLodging.filter(lodgingPassesSharedFilter)
+		}));
+	})();
+	$: rawUnscheduledItems = getUnscheduledItems(collection);
+	$: unscheduledItems = (() => {
+		const _q = filterSearch;
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _q, _c, _g;
+		return rawUnscheduledItems.filter(({ type, item }: any) =>
+			resolvedPassesSharedFilter(item, type)
+		);
+	})();
 	// Trip-wide (global) itinerary items
-	$: globalItems = (collection.itinerary || [])
+	$: rawGlobalItems = (collection.itinerary || [])
 		.filter((it) => it.is_global)
 		.map((it) => resolveItineraryItem(it, collection))
 		.sort((a, b) => a.order - b.order);
+	$: globalItems = (() => {
+		const _q = filterSearch;
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _q, _c, _g;
+		return rawGlobalItems.filter((it) =>
+			resolvedPassesSharedFilter(it.resolvedObject, it.item?.type as any)
+		);
+	})();
 
 	// Auto-generate state
 	let isAutoGenerating = false;
@@ -1794,7 +1879,7 @@
 								items: globalItems,
 								flipDurationMs,
 								dropTargetStyle: { outline: 'none', border: 'none' },
-								dragDisabled: isSavingOrder || !canModify,
+								dragDisabled: isSavingOrder || !canModify || sharedFilterActive,
 								dropFromOthersDisabled: true
 							}}
 							on:consider={handleDndConsiderGlobal}
@@ -2163,7 +2248,7 @@
 									items: day.items,
 									flipDurationMs,
 									dropTargetStyle: { outline: 'none', border: 'none' },
-									dragDisabled: isSavingOrder || !canModify,
+									dragDisabled: isSavingOrder || !canModify || sharedFilterActive,
 									dropFromOthersDisabled: true
 								}}
 								on:consider={(e) => handleDndConsider(dayIndex, e)}

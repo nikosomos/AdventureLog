@@ -17,6 +17,7 @@
 	import { isAllDay } from '$lib';
 	import ImageDisplayModal from '$lib/components/ImageDisplayModal.svelte';
 	import CollectionAllItems from '$lib/components/collections/CollectionAllItems.svelte';
+	import CollectionFilterBar from '$lib/components/collections/CollectionFilterBar.svelte';
 	import CollectionItineraryPlanner from '$lib/components/collections/CollectionItineraryPlanner.svelte';
 	import CollectionRecommendationView from '$lib/components/CollectionRecommendationView.svelte';
 	import CollectionMap from '$lib/components/collections/CollectionMap.svelte';
@@ -167,6 +168,83 @@
 				addToast('error', $t('adventures.image_upload_error'));
 			}
 		}
+	}
+
+	// Shared filter state (persists across tab switches; applies to All Items, Itinerary, Map).
+	// Arrays (not Sets) for cleaner Svelte reactivity and URL serialization.
+	let filterSearch: string = '';
+	let filterSelectedCategoryIds: string[] = [];
+	let filterSelectedTags: string[] = [];
+
+	// Track when the filter has been hydrated from the URL so we don't immediately overwrite
+	// query params before reading them on first render.
+	let filterHydrated = false;
+
+	function parseListParam(value: string | null): string[] {
+		if (!value) return [];
+		return value
+			.split(',')
+			.map((s) => s.trim())
+			.filter((s) => s.length > 0);
+	}
+
+	// Hydrate filter state from URL on every navigation/refresh.
+	$: {
+		const params = $page.url.searchParams;
+		const q = params.get('q') ?? '';
+		const cats = parseListParam(params.get('cat'));
+		const tags = parseListParam(params.get('tag'));
+		if (!filterHydrated) {
+			filterSearch = q;
+			filterSelectedCategoryIds = cats;
+			filterSelectedTags = tags;
+			filterHydrated = true;
+		}
+	}
+
+	// Build a per-location predicate that matches the active filter. Reactive so consumers can
+	// reuse a single function reference whose identity changes when state changes.
+	$: matchesFilter = (loc: any) => {
+		if (filterSelectedCategoryIds.length > 0) {
+			const id = loc?.category?.id;
+			if (!id || !filterSelectedCategoryIds.includes(id)) return false;
+		}
+		if (filterSelectedTags.length > 0) {
+			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
+			if (!locTags.some((t) => filterSelectedTags.includes(t))) return false;
+		}
+		const q = (filterSearch ?? '').trim().toLowerCase();
+		if (q) {
+			const name = (loc?.name ?? '').toLowerCase();
+			const place = (loc?.location ?? '').toLowerCase();
+			if (!name.includes(q) && !place.includes(q)) return false;
+		}
+		return true;
+	};
+
+	$: filterTotalCount = collection?.locations?.length ?? 0;
+	$: filterMatchCount = collection?.locations?.filter(matchesFilter).length ?? 0;
+
+	// Sync filter state back to the URL whenever it changes (after the initial hydration).
+	$: if (typeof window !== 'undefined' && filterHydrated) {
+		syncFilterToUrl(filterSearch, filterSelectedCategoryIds, filterSelectedTags);
+	}
+
+	let filterUrlSyncTimer: ReturnType<typeof setTimeout> | null = null;
+	function syncFilterToUrl(q: string, cats: string[], tags: string[]) {
+		if (filterUrlSyncTimer) clearTimeout(filterUrlSyncTimer);
+		filterUrlSyncTimer = setTimeout(() => {
+			const url = new URL(window.location.href);
+			const setOrDelete = (key: string, val: string) => {
+				if (val) url.searchParams.set(key, val);
+				else url.searchParams.delete(key);
+			};
+			setOrDelete('q', (q ?? '').trim());
+			setOrDelete('cat', cats.join(','));
+			setOrDelete('tag', tags.join(','));
+			const target = url.pathname + (url.search ? url.search : '') + url.hash;
+			goto(target, { keepFocus: true, noScroll: true, replaceState: true });
+		}, 200);
 	}
 
 	// View state from URL params
@@ -1085,6 +1163,20 @@
 
 	<!-- Main Content -->
 	<div class="container mx-auto px-2 sm:px-4 py-6 sm:py-8 max-w-7xl">
+		<!-- Shared filter bar (applies to All Items, Itinerary, Map) -->
+		{#if currentView === 'all' || currentView === 'itinerary' || currentView === 'map'}
+			<div class="mb-6">
+				<CollectionFilterBar
+					{collection}
+					bind:search={filterSearch}
+					bind:selectedCategoryIds={filterSelectedCategoryIds}
+					bind:selectedTags={filterSelectedTags}
+					matchCount={filterMatchCount}
+					totalCount={filterTotalCount}
+				/>
+			</div>
+		{/if}
+
 		<!-- View Switcher -->
 		<div class="flex justify-center mb-6">
 			<div class="join">
@@ -1172,6 +1264,9 @@
 						bind:collection
 						user={data.user}
 						{isFolderView}
+						filterSearch={filterSearch}
+						filterCategoryIds={filterSelectedCategoryIds}
+						filterTags={filterSelectedTags}
 						on:openEdit={handleOpenEdit}
 					/>
 				{/if}
@@ -1182,6 +1277,9 @@
 						bind:collection
 						user={data.user}
 						canModify={canModifyCollection}
+						filterSearch={filterSearch}
+						filterCategoryIds={filterSelectedCategoryIds}
+						filterTags={filterSelectedTags}
 					/>
 				{/if}
 
@@ -1196,7 +1294,13 @@
 						<div class="card-body">
 							<h2 class="card-title text-2xl mb-4">🗺️ {$t('navbar.map')}</h2>
 							<div class="rounded-lg overflow-hidden shadow-lg">
-								<CollectionMap bind:collection user={data.user} />
+								<CollectionMap
+									bind:collection
+									user={data.user}
+									filterSearch={filterSearch}
+									filterCategoryIds={filterSelectedCategoryIds}
+									filterTags={filterSelectedTags}
+								/>
 							</div>
 						</div>
 					</div>

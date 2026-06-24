@@ -20,6 +20,28 @@
 	export let clusterEnabled: boolean = false;
 	export let clusterOptions: any = { radius: 300, maxZoom: 8, minPoints: 2 };
 
+	// Shared filter props from parent route (CollectionFilterBar).
+	// When any of these are active, they additionally constrain which locations
+	// can produce map markers, and non-location features (lodging/transport) are
+	// hidden because they have no category/tags.
+	export let filterSearch: string = '';
+	export let filterCategoryIds: string[] = [];
+	export let filterTags: string[] = [];
+
+	$: sharedCategoryTagActive = filterCategoryIds.length > 0 || filterTags.length > 0;
+
+	function locationMatchesSharedFilter(loc: any): boolean {
+		if (filterCategoryIds.length > 0) {
+			const id = loc?.category?.id;
+			if (!id || !filterCategoryIds.includes(id)) return false;
+		}
+		if (filterTags.length > 0) {
+			const locTags: string[] = Array.isArray(loc?.tags) ? loc.tags : [];
+			if (!locTags.some((t) => filterTags.includes(t))) return false;
+		}
+		return true;
+	}
+
 	let basemapType = 'default';
 	$: if (user && basemapType === 'default' && user.map_style) {
 		basemapType = normalizeBasemapType(user.map_style);
@@ -335,17 +357,26 @@
 		)
 	).sort();
 
-	$: locationFeatures = (collection?.locations || [])
-		.map(locationToFeature)
-		.filter(Boolean) as MarkerFeature[];
+	// NOTE: directly reference filter prop arrays so Svelte 4 picks them up as deps.
+	$: locationFeatures = (() => {
+		const _c = filterCategoryIds;
+		const _g = filterTags;
+		void _c, _g;
+		return (collection?.locations || [])
+			.filter(locationMatchesSharedFilter)
+			.map(locationToFeature)
+			.filter(Boolean) as MarkerFeature[];
+	})();
 
-	$: lodgingFeatures = (collection?.lodging || [])
-		.map(lodgingToFeature)
-		.filter(Boolean) as MarkerFeature[];
+	$: lodgingFeatures = sharedCategoryTagActive
+		? []
+		: ((collection?.lodging || []).map(lodgingToFeature).filter(Boolean) as MarkerFeature[]);
 
-	$: transportationFeatures = (collection?.transportations || [])
-		.flatMap(transportationToFeatures)
-		.filter(Boolean) as MarkerFeature[];
+	$: transportationFeatures = sharedCategoryTagActive
+		? []
+		: ((collection?.transportations || [])
+				.flatMap(transportationToFeatures)
+				.filter(Boolean) as MarkerFeature[]);
 
 	$: allFeatures = [...locationFeatures, ...lodgingFeatures, ...transportationFeatures];
 	$: linesGeoJson = collectLinesGeojson(collection, {
@@ -384,6 +415,8 @@
 		return true;
 	}
 
+	$: effectiveSearch = filterSearch?.trim() ? filterSearch.trim() : searchQuery.trim();
+
 	$: filteredFeatures = allFeatures.filter((feature) =>
 		matchesFilters(feature, {
 			showLocations,
@@ -394,12 +427,12 @@
 			startDate: startDateFilter,
 			endDate: endDateFilter,
 			categories: selectedCategories,
-			search: searchQuery.trim()
+			search: effectiveSearch
 		})
 	);
 
 	// Auto-zoom when search results change
-	$: if (searchQuery.trim() && filteredFeatures.length > 0) {
+	$: if (effectiveSearch && filteredFeatures.length > 0) {
 		zoomToFilteredFeatures();
 	}
 
